@@ -1,0 +1,190 @@
+---
+title: "Lab 8"
+author: "Anthony Luna"
+date: "11/18/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(tidyverse)
+library(janitor)
+library(kableExtra)
+library(scales)
+library(here)
+library(ggbeeswarm)
+library(car)
+```
+
+### 1. One-way ANOVA to compare penguin flipper lengths
+
+![](penguin-heights.jpg)
+
+Read in the data, get some counts, etc:
+
+```{r}
+penguins <- readr::read_csv("penguins.csv") %>% 
+  clean_names()
+```
+
+Find some counts based on specices and sex
+
+```{r}
+penguin_count <- penguins %>% 
+  count(species, sex)
+
+penguin_count
+```
+
+Is there a significant difference in mean flipper length for female penguins across the 3 species?
+
+
+Create a subset tht only contains obs. for female penguins, then cisually explore the distributuion for each species:
+
+```{r}
+# Create subset with only female penguins
+
+penguin_f <- penguins %>% 
+  filter(sex == "FEMALE")
+
+# Visually explore the distribution of flipper lengths for the three species:
+
+# histograms:
+
+ggplot(data = penguin_f, aes(x=flipper_length_mm)) +
+  geom_histogram()+
+  facet_wrap(~species)
+
+
+ggplot(data = penguin_f, aes(sample = flipper_length_mm)) + 
+  geom_qq()+
+  facet_wrap(~species*study_name)
+
+# Look close to normally distributed, all groups have n>30 => use parametric
+# one-way ANOVA to compare flipper lengths
+
+
+```
+
+Find some summary statistics using group_by + summarize:
+
+```{r}
+penguin_f_summary <-  penguin_f %>% 
+  group_by(species) %>% 
+  summarize(
+    mean_flipper_length = mean(flipper_length_mm),
+    sd_flipper_length = sd(flipper_length_mm),
+    sample_size = n(),
+    se_flipper = sd(flipper_length_mm)/sqrt(n()),
+    var_flipper_length = var(flipper_length_mm)
+    )
+    
+penguin_f_summary
+```
+
+Levene's test:
+
+```{r}
+leveneTest(flipper_length_mm ~ species, data=penguin_f)
+
+# Results indicate to retain the null hypothesis (variances are equal across groups)
+```
+
+Beeswarm plot with the mean and the standard deviation overlayed:
+
+```{r}
+
+ggplot()+
+  geom_beeswarm(data = penguin_f,
+                aes(x = species,y=flipper_length_mm),
+                size= 3,
+                alpha = 0.6,
+                pch = 16,
+                color = "grey70") +
+  scale_x_discrete(labels = c("Adelie", "Chinstrap", "Gentoo")) +
+  geom_point(data = penguin_f_summary, aes(x=species, y=mean_flipper_length),
+             color = "red")+
+  geom_errorbar(data = penguin_f_summary, aes(x=species,
+                                              ymin=mean_flipper_length - sd_flipper_length,
+                                              ymax=mean_flipper_length + sd_flipper_length), 
+                color = "red", 
+                width = .2, 
+                size = 1)+
+  theme_light()
+```
+
+**Figure 1.** Flipper lengths (mm) for adelie (n=), chinstrap (n=), and Gentoo (n=) penguins at Palmer Station, Antarctica. Means indicated by black points; error bars indicatd $\pm$ 1 standard deviation. Data Source: {}
+
+```{r}
+penguin_aov <- aov(flipper_length_mm ~ species, data = penguin_f)
+
+penguin_aov
+summary(penguin_aov)
+
+# There Is a significant difference in mean flipper lengths between Adelie, Chinstrap, and Gentoo penguins at Palmer Station (F(2, 162) = 411.8 p < 0.0001)
+```
+
+... Well if the means aren't equal, then which ones differ?
+
+```{r}
+TukeyHSD(penguin_aov)
+```
+
+One-way ANOVA with post-hoc Tukey's HSD reveals a significant difference in mean female flipper length between all 3 species (Gentoo, Adelie, Chinstrap) (stats results...)
+
+
+### Part 2: Tables, and Proportions and chi-square
+
+```{r}
+party_relig <-  gss_cat %>% 
+  filter(partyid %in% c("Strong republican", "Strong democrat")) %>% 
+  filter(relig %in% c("None","Catholic")) %>% 
+  count(partyid, relig)
+
+party_relig_contable <- party_relig %>% 
+  pivot_wider(names_from = relig, values_from = n) 
+
+```
+
+Make a nice table of counts and proportions within each group:
+
+```{r}
+party_relig_prop <-  party_relig_contable %>% 
+  janitor::adorn_percentages(denominator = "row") %>% 
+  janitor::adorn_pct_formatting(digits = 1) %>% 
+  janitor::adorn_ns(position="front")
+
+kable(party_relig_prop) %>% 
+  kable_styling()
+
+```
+
+Chi-Squared testing is all about checking the shift in proportions based on a factor. Now we are going to run a chi-square test for independence. First, get only a contingency table (values only; noadditional columns)
+
+```{r}
+chi_counts <- party_relig_contable %>% 
+  select(-partyid)
+chi_counts
+
+```
+
+
+A couple of questions to prompt a chi-square:
+
+ * Is there a significant difference in religious affiliation (non/catholic) between strong democrats and strong republicans?
+ * is there a significant association between party affiliation (strong dem/ strong republican) on religious afiliation (none/Catholic).
+ 
+```{r}
+chi_test <- chisq.test(chi_counts)
+
+chi_test
+```
+ 
+H~0~: No significant association between categories (political affiliation and religious affiliation are independent)
+
+ - There is a significant association between partyid and religious affiliation ($\chi^2$ = ).
+ - Religious affiliation (none/Catholic) differed significantly between strong democrats and strong republicans.
+ - The proportions of people who identify as atheist or catholic differs significantly for strong republicans or strong democrats.
+
